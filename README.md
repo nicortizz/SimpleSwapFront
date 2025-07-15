@@ -1,4 +1,4 @@
-# 🦄 SimpleSwap
+# 🔄 SimpleSwap
 
 **SimpleSwap** is a decentralized web application (dApp) that allows users to swap ERC-20 tokens, add/remove liquidity from a pool, and view key metrics such as balances, reserves, and historical transactions. It runs on the Sepolia testnet and is built with React, Vite, TailwindCSS, and RainbowKit + Wagmi.
 
