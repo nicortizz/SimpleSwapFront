@@ -3,6 +3,11 @@ import { ethers } from 'ethers';
 import { toast } from "react-toastify";
 import { useAccount, useWalletClient } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import SwapTab from './tabs/SwapTab';
+import AddLiquidityTab from './tabs/AddLiquidityTab';
+import RemoveLiquidityTab from './tabs/RemoveLiquidityTab';
+import HistoryTab from './tabs/HistoryTab';
+import DashboardTab from './tabs/DashboardTab';
 import simpleSwapAbi from '../abi/SimpleSwap.json';
 import { erc20Abi, ensureApproval } from '../abi/erc20Abi';
 
@@ -39,6 +44,7 @@ function SwapInterface() {
   const [userShare, setUserShare] = useState(null);
   const [totalSupply, setTotalSupply] = useState("0");
   const [estimatedOutput, setEstimatedOutput] = useState(null);
+  const [activeTab, setActiveTab] = useState('dashboard');
 
 
   useEffect(() => {
@@ -102,7 +108,7 @@ function SwapInterface() {
       }
     } catch (err) {
       console.error("Error fetching user share", err);
-      toast.error("No se pudo calcular la participación en el pool");
+      toast.error("Pool participation could not be calculated");
     }
   };
 
@@ -115,14 +121,14 @@ function SwapInterface() {
       setReserves({ reserveA: formattedA, reserveB: formattedB });
     } catch (err) {
       console.error("Error fetching reserves", err);
-      toast.error("No se pudo obtener la liquidez del pool");
+      toast.error("Liquidity could not be obtained from the pool");
     }
   };
 
   const fetchBalances = async (instance, user, a, b) => {
     try {
       if (!window.ethereum || !user) {
-        console.error("Faltan datos para obtener balances");
+        console.error("Lack of data to obtain balances");
         return;
       }
 
@@ -149,7 +155,7 @@ function SwapInterface() {
       setLpBalance(ethers.utils.formatUnits(balance, 18));
     } catch (err) {
       console.error("Error fetching LP balance", err);
-      toast.error("No se pudo obtener el balance de LP");
+      toast.error("Could not get LP balance");
     }
   };
 
@@ -214,7 +220,7 @@ function SwapInterface() {
           time: new Date().toLocaleString(),
           detail: args.amountIn && args.inputToken && args.amountOut && args.outputToken
             ? `Swap ${ethers.utils.formatUnits(args.amountIn, 18)} ${args.inputToken.slice(0, 6)} → ${ethers.utils.formatUnits(args.amountOut, 18)} ${args.outputToken.slice(0, 6)}`
-            : 'Swap (datos incompletos)',
+            : 'Swap (incomplete data)',
         };
       });
 
@@ -226,7 +232,7 @@ function SwapInterface() {
           time: new Date().toLocaleString(),
           detail: args.amountA && args.amountB && args.lpTokens
             ? `Add ${ethers.utils.formatUnits(args.amountA, 18)} A + ${ethers.utils.formatUnits(args.amountB, 18)} B → LP ${ethers.utils.formatUnits(args.lpTokens, 18)}`
-            : 'Add Liquidity (datos incompletos)',
+            : 'Add Liquidity (incomplete data)',
         };
       });
 
@@ -238,7 +244,7 @@ function SwapInterface() {
           time: new Date().toLocaleString(),
           detail: args.amountA && args.amountB && args.lpTokensBurned
             ? `Remove ${ethers.utils.formatUnits(args.amountA, 18)} A + ${ethers.utils.formatUnits(args.amountB, 18)} B ← LP ${ethers.utils.formatUnits(args.lpTokensBurned, 18)}`
-            : 'Remove Liquidity (datos incompletos)',
+            : 'Remove Liquidity (incomplete data)',
         };
       });
 
@@ -246,7 +252,7 @@ function SwapInterface() {
       setHistory(full);
     } catch (err) {
       console.error("Error fetching full history", err);
-      toast.error("No se pudo obtener el historial completo");
+      toast.error("The full history could not be obtained");
     }
   };
 
@@ -277,10 +283,9 @@ function SwapInterface() {
       const currentAllowance = await tokenInContract.allowance(address, contractAddress);
       if (currentAllowance.lt(amountIn)) {
         const approveTx = await tokenInContract.approve(contractAddress, amountIn);
-        await approveTx.wait();
-        const receipt = await tx.wait();
+        const receipt = await approveTx.wait();
         const gasUsed = receipt.gasUsed.toString();
-        toast.info(`✅ Operación confirmada (gas usado: ${gasUsed})`);
+        toast.info(`✅ Operation confirmed (gas used: ${gasUsed})`);
       }
 
       const tx = await contract.swapExactTokensForTokens(
@@ -296,7 +301,7 @@ function SwapInterface() {
 
       await tx.wait();
       const gasUsed = receipt.gasUsed.toString();
-      toast.info(`✅ Operación confirmada (gas usado: ${gasUsed})`);
+      toast.info(`✅ Operation confirmed (gas used: ${gasUsed})`);
       await fetchBalances(contract, address, tokenA, tokenB);
       await fetchHistory(contract, address);
       await fetchUserShare();
@@ -324,12 +329,12 @@ function SwapInterface() {
       const userBalanceB = ethers.utils.parseUnits(balanceB || "0", 18);
 
       if (parsedAmountA.gt(userBalanceA)) {
-        toast.error("No tenés suficiente balance de Token A.");
+        toast.error("You don't have enough Token A balance.");
         return;
       }
 
       if (parsedAmountB.gt(userBalanceB)) {
-        toast.error("No tenés suficiente balance de Token B.");
+        toast.error("You don't have enough Token B balance.");
         return;
       }
 
@@ -349,16 +354,16 @@ function SwapInterface() {
 
       await tx.wait();
       const gasUsed = receipt.gasUsed.toString();
-      toast.info(`✅ Operación confirmada (gas usado: ${gasUsed})`);
+      toast.info(`✅ Operation confirmed (gas used: ${gasUsed})`);
       if (!address || !signer) {
-        setError("Signer o dirección no definidos");
+        setError("Signer or address not defined");
       } else {
         await fetchBalances(contract, address, tokenA, tokenB);
       }
       await fetchUserShare();
     } catch (err) {
       console.error(err);
-      toast.error(`Error: ${err.reason || err.message || "Falló agregar liquidez"}`);
+      toast.error(`Error: ${err.reason || err.message || "Failed to add liquidity"}`);
     } finally {
       setLoading(false);
     }
@@ -373,7 +378,7 @@ function SwapInterface() {
       const userLpBalance = ethers.utils.parseUnits(lpBalance || "0", 18);
 
       if (amountToRemove.gt(userLpBalance)) {
-        toast.error("No tenés suficiente LP para remover esa cantidad.");
+        toast.error("You don't have enough LP to remove that amount.");
         return;
       }
 
@@ -389,7 +394,7 @@ function SwapInterface() {
       await tx.wait();
       const receipt = await tx.wait();
       const gasUsed = receipt.gasUsed.toString();
-      toast.info(`✅ Operación confirmada (gas usado: ${gasUsed})`);
+      toast.info(`✅ Operation confirmed (gas used: ${gasUsed})`);
       await fetchBalances(contract, address, tokenA, tokenB);
       await fetchUserShare();
     } catch (err) {
@@ -409,182 +414,99 @@ function SwapInterface() {
     return false;
   };
 
+  const renderTab = () => {
+    switch (activeTab) {
+      case 'swap':
+        return <SwapTab
+          inputToken={inputToken}
+          inputAmount={inputAmount}
+          setInputAmount={setInputAmount}
+          estimateOutput={estimateOutput}
+          toggleToken={toggleToken}
+          estimatedOutput={estimatedOutput}
+          hasInsufficientBalance={hasInsufficientBalance}
+          loading={loading}
+          isConnected={isConnected}
+          swap={swap}
+          price={price}
+          getPrice={getPrice}
+        />;
+      case 'add':
+        return <AddLiquidityTab
+          balanceA={reserves.reserveA}
+          balanceB={reserves.reserveB}
+          liquidityInputs={liquidityInputs}
+          setLiquidityInputs={setLiquidityInputs}
+          handleAddLiquidity={handleAddLiquidity}
+          loading={loading}
+          isConnected={isConnected}
+        />;
+      case 'remove':
+        return <RemoveLiquidityTab
+          lpBalance={lpBalance}
+          liquidityToRemove={liquidityToRemove}
+          setLiquidityToRemove={setLiquidityToRemove}
+          handleRemoveLiquidity={handleRemoveLiquidity}
+          loading={loading}
+          isConnected={isConnected}
+        />;
+      case 'history':
+        return <HistoryTab
+          history={history}
+          fetchFullHistory={fetchFullHistory}
+        />;
+      default:
+        return <DashboardTab
+          address={address}
+          history={history}
+          reserves={reserves}
+          lpBalance={lpBalance}
+          userShare={userShare}
+          totalSupply={totalSupply}
+        />;
+    }
+  };
+
   return (
-    <div className="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md space-y-6">
+    <div className="max-w-xl mx-auto p-6 rounded-xl shadow-md bg-white">
       <ConnectButton />
-      {address && (
-        <div className="my-4 bg-blue-50 border-l-4 border-blue-400 p-3 rounded">
-          <p className="text-sm">📊 <strong>Resumen</strong></p>
-          <ul className="text-sm space-y-1">
-            <li>🧮 Swaps realizados: <strong>{history.length}</strong></li>
-            <li>💧 Liquidez: <strong>{reserves.reserveA}</strong> A / <strong>{reserves.reserveB}</strong> B</li>
-            <li>🪙 Tus tokens LP: <strong>{lpBalance}</strong></li>
-            <li>📈 Participación: <strong>{userShare}%</strong></li>
-            <li>🔄 LP Total: <strong>{totalSupply}</strong></li>
-          </ul>
-        </div>
-      )}
-      {address && <p className="text-sm text-gray-600">Connected: {address}</p>}
-      {error && <p className="text-red-600">{error}</p>}
 
-      <div className="space-y-2">
-        <p className="text-gray-700">Token A Balance: {balanceA}</p>
-        <p className="text-gray-700">Token B Balance: {balanceB}</p>
-      </div>
-      <div className="bg-gray-100 p-4 rounded mb-4">
-        <h4 className="text-md font-semibold mb-2">Liquidez del Pool</h4>
-        {userShare !== null && (
-          <div className="text-sm text-gray-700 mt-2">
-            Tu participación en el pool: <strong>{userShare}%</strong>
-          </div>
-        )}
-        <p className="text-sm">Token A: {reserves.reserveA}</p>
-        <p className="text-sm">Token B: {reserves.reserveB}</p>
-      </div>
-
-      <div className="flex items-center space-x-2">
-        <input
-          className="flex-1 border border-gray-300 px-4 py-2 rounded focus:outline-none"
-          placeholder={`Amount ${inputToken}`}
-          value={inputAmount}
-          onChange={(e) => {
-            setInputAmount(e.target.value);
-            estimateOutput(e.target.value);
-          }}
-        />
-        <button className="text-blue-500 font-bold" onClick={toggleToken}>⇄ A/B</button>
-      </div>
-      {estimatedOutput && (
-        <p className="text-sm text-gray-600">
-          Estimado a recibir: <strong>{estimatedOutput} {inputToken === 'A' ? 'B' : 'A'}</strong>
-        </p>
-      )}
-      {inputAmount && hasInsufficientBalance() && (
-        <p className="text-sm text-red-600">
-          Saldo insuficiente para Token {inputToken}
-        </p>
-      )}
-
-      <button
-        onClick={swap}
-        disabled={loading || !isConnected || hasInsufficientBalance()}
-        className="w-full py-2 px-4 bg-green-600 text-white font-semibold rounded hover:bg-green-700 disabled:opacity-50"
-      >
-        {loading ? 'Swapping...' : `Swap ${inputToken} → ${inputToken === 'A' ? 'B' : 'A'}`}
-      </button>
-
-      <div className="text-center">
+      <div className="flex justify-around mt-4 border-b">
         <button
-          onClick={getPrice}
-          className="text-blue-600 underline"
+          className={`py-2 px-4 ${activeTab === 'summary' ? 'border-b-2 border-blue-600 font-semibold' : ''}`}
+          onClick={() => setActiveTab('summary')}
         >
-          Get Price ({inputToken} in {inputToken === 'A' ? 'B' : 'A'})
+          Summary
         </button>
-        {price && <p className="text-sm text-gray-700">Price: {price}</p>}
-      </div>
-
-      <hr className="my-4" />
-      <h3 className="text-lg font-semibold">Liquidity Actions</h3>
-
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm text-gray-600">Amount A (desired)</label>
-          <input
-            type="number"
-            value={liquidityInputs.amountADesired}
-            onChange={(e) => setLiquidityInputs({ ...liquidityInputs, amountADesired: e.target.value })}
-            className="w-full px-3 py-2 border rounded"
-          />
-          {parseFloat(liquidityInputs.amountADesired || '0') > parseFloat(balanceA || '0') && (
-            <p className="text-sm text-red-600">Saldo insuficiente de Token A</p>
-          )}
-        </div>
-        <div>
-          <label className="block text-sm text-gray-600">Amount B (desired)</label>
-          <input
-            type="number"
-            value={liquidityInputs.amountBDesired}
-            onChange={(e) => setLiquidityInputs({ ...liquidityInputs, amountBDesired: e.target.value })}
-            className="w-full px-3 py-2 border rounded"
-          />
-          {parseFloat(liquidityInputs.amountBDesired || '0') > parseFloat(balanceB || '0') && (
-            <p className="text-sm text-red-600">Saldo insuficiente de Token B</p>
-          )}
-        </div>
         <button
-          onClick={handleAddLiquidity}
-          disabled={
-            loading ||
-            !isConnected ||
-            parseFloat(liquidityInputs.amountADesired || '0') > parseFloat(balanceA || '0') ||
-            parseFloat(liquidityInputs.amountBDesired || '0') > parseFloat(balanceB || '0')
-          }
-          className="w-full py-2 px-4 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 disabled:opacity-50"
+          className={`py-2 px-4 ${activeTab === 'swap' ? 'border-b-2 border-blue-600 font-semibold' : ''}`}
+          onClick={() => setActiveTab('swap')}
         >
-          {loading ? 'Agregando...' : 'Agregar Liquidez'}
+          Swap
+        </button>
+        <button
+          className={`py-2 px-4 ${activeTab === 'add' ? 'border-b-2 border-blue-600 font-semibold' : ''}`}
+          onClick={() => setActiveTab('add')}
+        >
+          Add Liquidity
+        </button>
+        <button
+          className={`py-2 px-4 ${activeTab === 'remove' ? 'border-b-2 border-blue-600 font-semibold' : ''}`}
+          onClick={() => setActiveTab('remove')}
+        >
+          Remove Liquidity
+        </button>
+        <button
+          className={`py-2 px-4 ${activeTab === 'history' ? 'border-b-2 border-blue-600 font-semibold' : ''}`}
+          onClick={() => setActiveTab('history')}
+        >
+          History
         </button>
       </div>
 
-      <div className="mt-6 space-y-4 border-t pt-4">
-        <h3 className="text-lg font-semibold">Remover Liquidez</h3>
-
-        <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium text-gray-700">Cantidad de Liquidez a remover</label>
-          <input
-            type="text"
-            placeholder="Ej: 10"
-            value={liquidityToRemove}
-            onChange={(e) => setLiquidityToRemove(e.target.value)}
-            className="border px-3 py-2 rounded w-full"
-          />
-          <p className="text-sm text-gray-600">
-            Balance actual de LP: <strong>{lpBalance}</strong>
-          </p>
-        </div>
-
-        <button
-          onClick={handleRemoveLiquidity}
-          disabled={
-            loading ||
-            !isConnected ||
-            !liquidityToRemove ||
-            parseFloat(liquidityToRemove) > parseFloat(lpBalance)
-          }
-          className="w-full py-2 px-4 bg-red-600 text-white font-semibold rounded hover:bg-red-700 disabled:opacity-50"
-        >
-          {loading ? 'Removiendo...' : 'Remover Liquidez'}
-        </button>
+      <div className="mt-6">
+        {renderTab()}
       </div>
-
-      <hr className="my-4" />
-      <h3 className="text-lg font-semibold">Recent Swaps</h3>
-      {history.length === 0 && <p className="text-gray-500">No swaps found</p>}
-      <div className="text-center mt-4">
-        <button
-          onClick={fetchFullHistory}
-          className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-        >
-          Show all history
-        </button>
-      </div>
-
-      <ul className="space-y-2 mt-4">
-        {history.map((h, idx) => (
-          <li key={idx} className="text-sm border border-gray-200 p-2 rounded">
-            <div className="font-semibold">{h.type || 'Swap'}</div>
-            <div>{h.detail || `${h.amountIn} ${h.inputToken.slice(0, 6)} → ${h.amountOut} ${h.outputToken.slice(0, 6)}`}</div>
-            <div className="text-gray-500 text-xs">{h.time || h.timestamp}</div>
-            <a
-              href={`https://sepolia.etherscan.io/tx/${h.hash}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-500 underline"
-            >
-              {h.hash.slice(0, 10)}...
-            </a>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
