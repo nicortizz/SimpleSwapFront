@@ -9,7 +9,7 @@ export const erc20Abi = [
 ];
 
 /**
- * Asegura que haya suficiente allowance antes de hacer la operación
+ * Ensure there is sufficient allowance before performing the operation
  */
 export async function ensureApproval({ tokenAddress, spender, amount, signer, userAddress }) {
   try {
@@ -17,16 +17,17 @@ export async function ensureApproval({ tokenAddress, spender, amount, signer, us
     const allowance = await token.allowance(userAddress, spender);
 
     if (allowance.lt(amount)) {
-      toast.info(`Aprobando token...`);
+      toast.info(`Approving token...`);
       const tx = await token.approve(spender, amount);
-      await tx.wait();
-      toast.success(`Token aprobado`);
+      const receipt = await tx.wait();
+      const gasUsed = receipt.gasUsed.toString();
+      toast.success(`Token approved (gas used: ${gasUsed})`);
     } else {
-      console.log("✅ Ya hay allowance suficiente");
+      console.log("✅ There is already enough allowance");
     }
   } catch (error) {
-    console.error("⛔ Error al aprobar", error);
-    toast.error("Error al aprobar el token");
+    console.error("⛔ Error approving", error);
+    toast.error("Error approving token");
     throw error;
   }
 }

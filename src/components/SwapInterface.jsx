@@ -21,6 +21,10 @@ function SwapInterface() {
     if (!walletClient) return null;
     return new ethers.providers.Web3Provider(window.ethereum).getSigner();
   }, [walletClient]);
+  const provider = useMemo(() => {
+    if (!walletClient) return null;
+    return new ethers.providers.Web3Provider(window.ethereum);
+  }, [walletClient]);
 
   const [contract, setContract] = useState(null);
   const [tokenA, setTokenA] = useState(null);
@@ -45,7 +49,7 @@ function SwapInterface() {
   const [totalSupply, setTotalSupply] = useState("0");
   const [estimatedOutput, setEstimatedOutput] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
-
+  const [loadingFullHistory, setLoadingFullHistory] = useState(false);
 
   useEffect(() => {
     if (!walletClient || !isConnected || !signer) return;
@@ -62,8 +66,8 @@ function SwapInterface() {
         await fetchBalances(instance, address, a, b);
         await fetchHistory(instance, address);
         await fetchLpBalance(address);
-        await fetchUserShare();
-        await fetchReserves();
+        await fetchUserShare(instance);
+        await fetchReserves(instance);
         await fetchFullHistory(instance, address);
       } catch (err) {
         console.error(err);
@@ -92,9 +96,10 @@ function SwapInterface() {
     return () => clearInterval(interval);
   }, [contract, tokenA, tokenB, inputToken]);
 
-  const fetchUserShare = async () => {
+  const fetchUserShare = async (instanceOverride, addressOverride) => {
     try {
-      if (!signer || !address || !contract) return;
+      const inst = instanceOverride || contract;
+      if (!signer || !address || !inst) return;
       const lpToken = new ethers.Contract(contractAddress, simpleSwapAbi, signer);
       const userBalance = await lpToken.balanceOf(address);
       const totalSupply = await lpToken.totalSupply();
@@ -112,10 +117,11 @@ function SwapInterface() {
     }
   };
 
-  const fetchReserves = async () => {
+  const fetchReserves = async (instanceOverride) => {
     try {
-      if (!contract) return;
-      const [rawA, rawB] = await contract.getReserves();
+      const inst = instanceOverride || contract;
+      if (!inst) return;
+      const [rawA, rawB] = await inst.getReserves();
       const formattedA = ethers.utils.formatUnits(rawA, 18);
       const formattedB = ethers.utils.formatUnits(rawB, 18);
       setReserves({ reserveA: formattedA, reserveB: formattedB });
@@ -195,21 +201,27 @@ function SwapInterface() {
     }
   };
 
-  const fetchFullHistory = async () => {
+  const fetchFullHistory = async (instanceOverride, addressOverride) => {
+    setLoadingFullHistory(true);
+    
     try {
-      if (!contract || !address) return;
+      const currentInstance = contract || instanceOverride;
+      const currentAddress = address || addressOverride;
+      if (!currentInstance || !currentAddress || !provider) return;
 
-      const fromBlock = -5000;
+      const latestBlock = await provider.getBlockNumber();
+      const fromBlock = Math.max(latestBlock - 10000, 0); // last 10k blocks
+
       const filters = {
-        swap: contract.filters.TokenSwapped(address),
-        add: contract.filters.LiquidityAdded(address),
-        remove: contract.filters.LiquidityRemoved(address),
+        swap: currentInstance.filters.TokenSwapped(currentAddress),
+        add: currentInstance.filters.LiquidityAdded(currentAddress),
+        remove: currentInstance.filters.LiquidityRemoved(currentAddress),
       };
 
       const [swaps, adds, removes] = await Promise.all([
-        contract.queryFilter(filters.swap, fromBlock),
-        contract.queryFilter(filters.add, fromBlock),
-        contract.queryFilter(filters.remove, fromBlock),
+        currentInstance.queryFilter(filters.swap, fromBlock, latestBlock),
+        currentInstance.queryFilter(filters.add, fromBlock, latestBlock),
+        currentInstance.queryFilter(filters.remove, fromBlock, latestBlock),
       ]);
 
       const formatSwap = swaps.map((e) => {
@@ -221,6 +233,8 @@ function SwapInterface() {
           detail: args.amountIn && args.inputToken && args.amountOut && args.outputToken
             ? `Swap ${ethers.utils.formatUnits(args.amountIn, 18)} ${args.inputToken.slice(0, 6)} → ${ethers.utils.formatUnits(args.amountOut, 18)} ${args.outputToken.slice(0, 6)}`
             : 'Swap (incomplete data)',
+          blockNumber: e.blockNumber,
+          logIndex: e.logIndex,
         };
       });
 
@@ -230,9 +244,11 @@ function SwapInterface() {
           type: 'AddLiquidity',
           hash: e.transactionHash,
           time: new Date().toLocaleString(),
-          detail: args.amountA && args.amountB && args.lpTokens
-            ? `Add ${ethers.utils.formatUnits(args.amountA, 18)} A + ${ethers.utils.formatUnits(args.amountB, 18)} B → LP ${ethers.utils.formatUnits(args.lpTokens, 18)}`
+          detail: args.amountA && args.amountB && args.liquidity
+            ? `Add ${ethers.utils.formatUnits(args.amountA, 18)} A + ${ethers.utils.formatUnits(args.amountB, 18)} B → LP ${ethers.utils.formatUnits(args.liquidity, 18)}`
             : 'Add Liquidity (incomplete data)',
+          blockNumber: e.blockNumber,
+          logIndex: e.logIndex,
         };
       });
 
@@ -242,17 +258,27 @@ function SwapInterface() {
           type: 'RemoveLiquidity',
           hash: e.transactionHash,
           time: new Date().toLocaleString(),
-          detail: args.amountA && args.amountB && args.lpTokensBurned
-            ? `Remove ${ethers.utils.formatUnits(args.amountA, 18)} A + ${ethers.utils.formatUnits(args.amountB, 18)} B ← LP ${ethers.utils.formatUnits(args.lpTokensBurned, 18)}`
+          detail: args.amountA && args.amountB && args.liquidity
+            ? `Remove ${ethers.utils.formatUnits(args.amountA, 18)} A + ${ethers.utils.formatUnits(args.amountB, 18)} B ← LP ${ethers.utils.formatUnits(args.liquidity, 18)}`
             : 'Remove Liquidity (incomplete data)',
+          blockNumber: e.blockNumber,
+          logIndex: e.logIndex,
         };
       });
 
-      const full = [...formatSwap, ...formatAdd, ...formatRemove].sort((a, b) => b.hash.localeCompare(a.hash));
+      const full = [...formatSwap, ...formatAdd, ...formatRemove].sort((a, b) => {
+        if (a.blockNumber !== b.blockNumber) {
+          return b.blockNumber - a.blockNumber;
+        }
+        return b.logIndex - a.logIndex;
+      });
+
       setHistory(full);
     } catch (err) {
       console.error("Error fetching full history", err);
       toast.error("The full history could not be obtained");
+    } finally {
+      setLoadingFullHistory(false);
     }
   };
 
@@ -285,7 +311,7 @@ function SwapInterface() {
         const approveTx = await tokenInContract.approve(contractAddress, amountIn);
         const receipt = await approveTx.wait();
         const gasUsed = receipt.gasUsed.toString();
-        toast.info(`✅ Operation confirmed (gas used: ${gasUsed})`);
+        toast.info(`✅ Token approved (gas used: ${gasUsed})`);
       }
 
       const tx = await contract.swapExactTokensForTokens(
@@ -299,7 +325,7 @@ function SwapInterface() {
         }
       );
 
-      await tx.wait();
+      const receipt = await tx.wait();
       const gasUsed = receipt.gasUsed.toString();
       toast.info(`✅ Operation confirmed (gas used: ${gasUsed})`);
       await fetchBalances(contract, address, tokenA, tokenB);
@@ -319,48 +345,71 @@ function SwapInterface() {
     try {
       setLoading(true);
 
-      const parsedAmountA = ethers.utils.parseUnits(liquidityInputs.amountADesired || "0", 18);
-      const parsedAmountB = ethers.utils.parseUnits(liquidityInputs.amountBDesired || "0", 18);
-      const minAmountA = parsedAmountA.mul(90).div(100);
-      const minAmountB = parsedAmountB.mul(90).div(100);
-      const deadline = Math.floor(Date.now() / 1000) + 60 * 10;
+      const amountADesired = ethers.utils.parseUnits(liquidityInputs.amountADesired || "0", 18);
+      const amountBDesired = ethers.utils.parseUnits(liquidityInputs.amountBDesired || "0", 18);
 
       const userBalanceA = ethers.utils.parseUnits(balanceA || "0", 18);
       const userBalanceB = ethers.utils.parseUnits(balanceB || "0", 18);
 
-      if (parsedAmountA.gt(userBalanceA)) {
+      if (amountADesired.gt(userBalanceA)) {
         toast.error("You don't have enough Token A balance.");
         return;
       }
 
-      if (parsedAmountB.gt(userBalanceB)) {
+      if (amountBDesired.gt(userBalanceB)) {
         toast.error("You don't have enough Token B balance.");
         return;
       }
 
-      await ensureApproval({ tokenAddress: tokenA, spender: contract.address, amount: parsedAmountA, signer, userAddress: address });
-      await ensureApproval({ tokenAddress: tokenB, spender: contract.address, amount: parsedAmountB, signer, userAddress: address });
+      const [reserveARaw, reserveBRaw] = await contract.getReserves();
+      const deadline = Math.floor(Date.now() / 1000) + 60 * 10;
+      const slippageTolerance = 0.01; // 1%
+
+      let amountA = amountADesired;
+      let amountB = amountBDesired;
+      let amountAMin, amountBMin;
+
+      if (reserveARaw.eq(0) && reserveBRaw.eq(0)) {
+        // First liquidity provider
+        amountAMin = amountA.mul(100 - slippageTolerance * 100).div(100);
+        amountBMin = amountB.mul(100 - slippageTolerance * 100).div(100);
+      } else {
+        const amountBOptimal = amountA.mul(reserveBRaw).div(reserveARaw);
+        if (amountBOptimal.lte(amountB)) {
+          amountB = amountBOptimal;
+          amountAMin = amountA.mul(100 - slippageTolerance * 100).div(100);
+          amountBMin = amountB.mul(100 - slippageTolerance * 100).div(100);
+        } else {
+          const amountAOptimal = amountB.mul(reserveARaw).div(reserveBRaw);
+          amountA = amountAOptimal;
+          amountAMin = amountA.mul(100 - slippageTolerance * 100).div(100);
+          amountBMin = amountB.mul(100 - slippageTolerance * 100).div(100);
+        }
+      }
+
+      // Approvals
+      await ensureApproval({ tokenAddress: tokenA, spender: contract.address, amount: amountA, signer, userAddress: address });
+      await ensureApproval({ tokenAddress: tokenB, spender: contract.address, amount: amountB, signer, userAddress: address });
 
       const tx = await contract.addLiquidity(
         tokenA,
         tokenB,
-        parsedAmountA,
-        parsedAmountB,
-        minAmountA,
-        minAmountB,
+        amountA,
+        amountB,
+        amountAMin,
+        amountBMin,
         address,
         deadline
       );
 
-      await tx.wait();
+      const receipt = await tx.wait();
       const gasUsed = receipt.gasUsed.toString();
       toast.info(`✅ Operation confirmed (gas used: ${gasUsed})`);
-      if (!address || !signer) {
-        setError("Signer or address not defined");
-      } else {
-        await fetchBalances(contract, address, tokenA, tokenB);
-      }
+
+      await fetchBalances(contract, address, tokenA, tokenB);
       await fetchUserShare();
+      await fetchLpBalance(address);
+      await fetchReserves();
     } catch (err) {
       console.error(err);
       toast.error(`Error: ${err.reason || err.message || "Failed to add liquidity"}`);
@@ -454,6 +503,7 @@ function SwapInterface() {
         return <HistoryTab
           history={history}
           fetchFullHistory={fetchFullHistory}
+          loadingFullHistory={loadingFullHistory}
         />;
       default:
         return <DashboardTab
@@ -467,8 +517,9 @@ function SwapInterface() {
     }
   };
 
+    //<div className="max-w-xl mx-auto p-6 rounded-xl shadow-md bg-white">
   return (
-    <div className="max-w-xl mx-auto p-6 rounded-xl shadow-md bg-white">
+    <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-xl p-6 border border-white/20">
       <ConnectButton />
 
       <div className="flex justify-around mt-4 border-b">

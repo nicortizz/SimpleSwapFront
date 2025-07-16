@@ -8,29 +8,38 @@ const RemoveLiquidityTab = ({
   loading,
   isConnected
 }) => {
+  const parsedRemove = parseFloat(liquidityToRemove || '0');
+  const parsedBalance = parseFloat(lpBalance || '0');
+
   return (
-    <div className="space-y-4">
-      <label className="text-sm font-medium text-gray-700">Liquidity amount to remove</label>
-      <input
-        type="text"
-        placeholder="e.g. 10"
-        value={liquidityToRemove}
-        onChange={(e) => setLiquidityToRemove(e.target.value)}
-        className="border px-3 py-2 rounded w-full"
-      />
-      <p className="text-sm text-gray-600">Current LP balance: <strong>{lpBalance}</strong></p>
+    <div className="space-y-4 bg-zinc-900 p-6 rounded-xl shadow-md text-white">
+      <div>
+        <label className="block text-sm text-zinc-400 mb-1">LP Tokens to Remove</label>
+        <input
+          type="number"
+          value={liquidityToRemove}
+          onChange={(e) => setLiquidityToRemove(e.target.value)}
+          placeholder="Enter amount"
+          className="w-full px-3 py-2 bg-zinc-800 text-white border border-zinc-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        {parsedRemove > parsedBalance && (
+          <p className="text-sm text-red-500 mt-1">Insufficient LP token balance</p>
+        )}
+      </div>
+
       <button
         onClick={handleRemoveLiquidity}
         disabled={
-          loading ||
-          !isConnected ||
-          !liquidityToRemove ||
-          parseFloat(liquidityToRemove) > parseFloat(lpBalance)
+          loading || !isConnected || parsedRemove <= 0 || parsedRemove > parsedBalance
         }
-        className="w-full py-2 px-4 bg-red-600 text-white font-semibold rounded hover:bg-red-700 disabled:opacity-50"
+        className="w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white font-semibold rounded disabled:opacity-50"
       >
         {loading ? 'Removing...' : 'Remove Liquidity'}
       </button>
+
+      <div className="text-xs text-zinc-400 text-right">
+        Your LP Balance: <span className="text-white font-semibold">{lpBalance ?? '0'}</span>
+      </div>
     </div>
   );
 };
